@@ -1,0 +1,85 @@
+{
+	"info": {
+		"_postman_id": "e0483a5c-ba60-4fb1-b316-8885bff8705b",
+		"name": "mamour",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "9581928"
+	},
+	"item": [
+		{
+			"name": "auth",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"username\": \"sales@mamour-enfants.com\",\r\n    \"password\": \"60vzfc8tHO5HE75t\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://backend.gm.lamoda.ru/api/v1/login",
+					"protocol": "https",
+					"host": [
+						"backend",
+						"gm",
+						"lamoda",
+						"ru"
+					],
+					"path": [
+						"api",
+						"v1",
+						"login"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "get_calendar",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "X-Auth-Token",
+						"value": "88758d90dd74c52d5f3b4990337d7b0a1a33ffda3c48516f5d7935b345791631",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://backend.gm.lamoda.ru/api/v1/calendar?month=2023-12&partnerId=4823&directionId=1",
+					"protocol": "https",
+					"host": [
+						"backend",
+						"gm",
+						"lamoda",
+						"ru"
+					],
+					"path": [
+						"api",
+						"v1",
+						"calendar"
+					],
+					"query": [
+						{
+							"key": "month",
+							"value": "2023-12"
+						},
+						{
+							"key": "partnerId",
+							"value": "4823"
+						},
+						{
+							"key": "directionId",
+							"value": "1"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
