@@ -1,150 +1,134 @@
+import asyncio
+from datetime import datetime
+
 import requests
-import json
+from aiogram import executor
 
-# Загрузка данных из JSON-файла
-with open('mamour.postman_collection.json', 'r') as file:
-    data = json.load(file)
+from src.loader import dp, bot
+from src.lamoda_api import get_auth_token, get_calendar
 
-# Переменная для хранения исходного токена
-original_auth_token = None
+last_check_time = None  # Добавляем переменную для хранения времени последней проверки
+last_has_slots = False  # Флаг, указывающий наличие слотов в предыдущей проверке
 
-def make_request(request_data, token=None, params=None):
-    url = request_data['request']['url']['raw']
-    method = request_data['request']['method']
-    headers = {}
 
-    # Добавление заголовка с токеном для авторизованных запросов
-    if token:
-        headers['X-Auth-Token'] = token
+async def process_unavailable_slots(slots):
+    messages = []
+    for slot in slots:
+        if slot.get('availability'):
+            start_time = datetime.fromisoformat(slot.get("startAt"))
+            end_time = datetime.fromisoformat(slot.get("endAt"))
+            message = f'✅ Доступен слот к отгрузке!\n\nИнформация о слоте:\n' \
+                      f'Начало: {start_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                      f'Окончание: {end_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                      f'Доступно вещей к поставке: {slot.get("freeCapacityCount")}\n'
+            messages.append(message)
+    return messages
 
-    # Выполнение запроса
-    if method == 'GET':
-        response = requests.get(url, headers=headers, params=params)
-    elif method == 'POST':
-        headers['Content-Type'] = 'application/json'
-        body = request_data['request']['body']['raw']
-        response = requests.post(url, headers=headers, json=json.loads(body))
 
-    return response
+async def send_long_message(chat_id, text):
+    max_length = 4096  # Максимальная длина сообщения для отправки в Telegram
 
-# Авторизация
-auth_response = make_request(data['item'][0])
+    while text:
+        chunk, text = text[:max_length], text[max_length:]
+        await bot.send_message(chat_id, chunk)
 
-# Проверка успешной авторизации и получение токена
-try:
-    auth_response.raise_for_status()
-    auth_data = auth_response.json()
-    if 'token' in auth_data['data']:
-        original_auth_token = auth_data['data']['token']
-        print("Original Auth Token:", original_auth_token)
 
-        # Запрос календаря с использованием токена авторизации
-        calendar_params = {
-            'month': '2023-12',
-            'partnerId': '4823',
-            'directionId': '1'
+async def check_calendar():
+    global last_check_time, last_has_slots
+    try:
+        # Получаем текущую дату и время
+        current_datetime = datetime.now()
+
+        # Получаем токен и сессионную куку PHPSESSID
+        token, php_session_cookie = get_auth_token()
+
+        # Создаем заголовки с токеном и сессионной кукой
+        headers = {
+            'X-Auth-Token': token,
+            'Cookie': f'PHPSESSID={php_session_cookie}'
         }
 
-        # Использование original_auth_token при каждом запросе календаря
-        calendar_response = make_request(data['item'][1], token=original_auth_token, params=calendar_params)
+        # Получаем календарный ответ с использованием заголовков
+        calendar_response = get_calendar(headers)
 
-        # Вывод полного URL запроса календаря
-        print("Полный URL запроса календаря:", calendar_response.request.url)
+        # Проверяем статус ответа
+        if calendar_response.status_code == 200:
+            calendar_data = calendar_response.json()
 
-        # Вывод ответа на запрос календаря
-        print("Ответ на запрос календаря после обновления токена:", calendar_response.text)
+            # Ищем слоты с параметром availability равным False
+            unavailable_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
+                                 not slot.get('availability')]
 
-        if calendar_response.status_code == 401 and 'refreshToken' in auth_data['data']:
-            print("Received 401 response. Trying to refresh the token...")  # Отладочный вывод
+            if unavailable_slots:
+                # выводим информацию о слотах
+                messages = await process_unavailable_slots(unavailable_slots)
+                last_check_time_message = f'Последняя проверка была: {current_datetime - last_check_time}' if last_check_time is not None else ''
 
-            refreshed_auth_response = make_request(data['item'][0], token=auth_data['data']['refreshToken'])
-            refreshed_auth_data = refreshed_auth_response.json()
+                # Собираем все сообщения в одну строку
+                combined_message = '\n'.join(messages)
 
-            print("Refreshed Auth Response:", refreshed_auth_response.text)  # Отладочный вывод
+                # Проверяем, если сообщение слишком длинное
+                if combined_message:
+                    if len(combined_message) > 4096:
+                        await send_long_message(-4008242375, combined_message)
+                    else:
+                        await bot.send_message(-4008242375, f'{combined_message}{last_check_time_message}')
 
-            if 'token' in refreshed_auth_data['data']:
-                original_auth_token = refreshed_auth_data['data']['token']
-                print("New Auth Token:", original_auth_token)
+                last_has_slots = True
+                last_check_time = current_datetime  # Обновляем время последней проверки
 
-                # Повторный запрос календаря с обновленным токеном и параметрами
-                calendar_response = make_request(data['item'][1], token=original_auth_token, params=calendar_params)
+            elif last_has_slots:
+                await bot.send_message(-4008242375, 'Нет доступных слотов')
+                last_has_slots = False
 
-                # Проверяем успешность запроса после обновления токена
-                if calendar_response.status_code == 200:
-                    print("Ответ на запрос календаря после обновления токена:", calendar_response.text)
-                else:
-                    print("Ошибка при запросе календаря после обновления токена. Код ответа:",
-                          calendar_response.status_code)
-                    print("Ответ на запрос календаря после обновления токена:", calendar_response.text)
-            else:
-                print("Токен не найден в ответе обновления токена.")
-        else:
-            print("Токен не обновлен. Код ответа:", calendar_response.status_code)
-            print("Ответ на запрос календаря:", calendar_response.text)
-    else:
-        print("Токен не найден в ответе авторизации.")
-except requests.exceptions.RequestException as e:
-    print(f"Произошла ошибка: {e}")
+        elif calendar_response.status_code == 401:
+            # В случае истечения срока действия токена, можно обновить только токен, оставив сессионную куку неизменной
+            new_token, _ = get_auth_token()
+            headers['X-Auth-Token'] = new_token  # Обновляем токен в заголовках
+            calendar_response = get_calendar(headers)
+            calendar_data = calendar_response.json()
+
+            # Ищем слоты с параметром availability равным False
+            unavailable_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
+                                 not slot.get('availability')]
+
+            if unavailable_slots:
+                # Если есть недоступные слоты, выводим информацию о слотах
+                messages = await process_unavailable_slots(unavailable_slots)
+                last_check_time_message = f'Последняя проверка была: {current_datetime - last_check_time}' if last_check_time is not None else ''
+
+                # Собираем все сообщения в одну строку
+                combined_message = '\n'.join(messages)
+
+                # Проверяем, если сообщение слишком длинное
+                if combined_message:
+                    if len(combined_message) > 4096:
+                        await send_long_message(-4008242375, combined_message)
+                    else:
+                        await bot.send_message(-4008242375, f'{combined_message}{last_check_time_message}')
+
+                last_has_slots = True
+                last_check_time = current_datetime  # Обновляем время последней проверки
+
+            elif last_has_slots:
+                await bot.send_message(-4008242375, 'Нет доступных слотов')
+                last_has_slots = False
+
+    except requests.exceptions.RequestException as e:
+        print(f'Request failed: {e}')
 
 
-# import asyncio
-# import json
-#
-# import requests
-# from aiogram import Bot, Dispatcher, types
-# from aiogram import executor
-#
-# # Замените 'YOUR_BOT_TOKEN' на токен вашего бота
-# TOKEN = '5855017352:AAG8c6XkSK93wvgJ2xiGbNM3uSZM-0Bs9iY'
-#
-# bot = Bot(token=TOKEN)
-# dp = Dispatcher(bot)
-#
-# @dp.message_handler(commands=['start'])
-# async def start(message: types.Message):
-#     await message.answer("Привет! Я бот для проверки доступности.")
-#
-#
-# @dp.message_handler()
-# async def check_availability(message: types.Message):
-#     url = 'https://backend.gm.lamoda.ru/api/v1/calendar?month=2023-12&partnerId=4823&directionId=1'
-#     response = requests.get(url)
-#
-#     try:
-#         data = response.json()
-#         print(data)
-#     except json.JSONDecodeError as e:
-#         print(f"Error decoding JSON: {e}")
-#         return
-#
-#     trace_id = data.get('traceId')
-#     if trace_id:
-#         print(f"Trace ID: {trace_id}")
-#
-#     items = data.get('items', [])
-#     print(items)
-#     for item in items:
-#         print(item)
-#         availability = item.get('availability', False)
-#
-#         if availability:
-#             # Notify the user that the availability is True
-#             await bot.send_message(chat_id=message.from_user.id, text="Ячейка доступна!")
-#
-#             # Optionally, you can provide additional information
-#             await bot.send_message(chat_id=message.from_user.id, text=f"Доступность найдена: {item}")
-#
-#             # You might want to break out of the loop if you only want to notify about the first available item
-#             break
-#
-#
-# async def scheduler(dispatcher):
-#     while True:
-#         await asyncio.sleep(1)  # Проверка каждые 24 часа (измените по необходимости)
-#         # Вызываем функцию check_availability, чтобы отправить уведомление
-#         await check_availability(types.Message)
-#
-# if __name__ == '__main__':
-#     loop = asyncio.get_event_loop()
-#     loop.create_task(scheduler(dp))
-#     executor.start_polling(dp, loop=loop)
+async def scheduled():
+    while True:
+        await check_calendar()
+        await asyncio.sleep(180)
+
+if __name__ == '__main__':
+    print("Bot started")
+
+    # Запускаем планировщик задач
+    loop = asyncio.get_event_loop()
+    loop.create_task(scheduled())
+
+    executor.start_polling(dp, skip_updates=True)
+    print("Bot stopped")
