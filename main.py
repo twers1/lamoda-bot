@@ -11,26 +11,45 @@ last_check_time = None  # Добавляем переменную для хра�
 last_has_slots = False  # Флаг, указывающий наличие слотов в предыдущей проверке
 
 
-async def process_unavailable_slots(slots):
+async def process_available_slots(slots):
     messages = []
     for slot in slots:
-        if slot.get('availability'):
+        availability = slot.get('availability')
+        free_capacity_count_str = slot.get('freeCapacityCount', '0')
+
+        # Convert freeCapacityCount to an integer (default to 0 if not convertible)
+        free_capacity_count = int(free_capacity_count_str) if free_capacity_count_str.isdigit() else 0
+
+        if availability and (free_capacity_count > 340 or (free_capacity_count_str.isdigit() and int(
+                free_capacity_count_str) > 200) or "более" in free_capacity_count_str.lower()):
             start_time = datetime.fromisoformat(slot.get("startAt"))
             end_time = datetime.fromisoformat(slot.get("endAt"))
-            message = f'✅ Доступен слот к отгрузке!\n\nИнформация о слоте:\n' \
-                      f'Начало: {start_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
-                      f'Окончание: {end_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
-                      f'Доступно вещей к поставке: {slot.get("freeCapacityCount")}\n'
+
+            if "более" in free_capacity_count_str.lower():
+                message = f'✅ Доступен слот к отгрузке!\n\nИнформация о слоте:\n' \
+                          f'Начало: {start_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                          f'Окончание: {end_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                          f'Доступно более 2000 вещей к поставке\n'
+            else:
+                message = f'✅ Доступен слот к отгрузке!\n\nИнформация о слоте:\n' \
+                          f'Начало: {start_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                          f'Окончание: {end_time.strftime("%d.%m.%Y %H:%M:%S")}\n' \
+                          f'Доступно вещей к поставке: {free_capacity_count}\n'
+
             messages.append(message)
     return messages
 
 
 async def send_long_message(chat_id, text):
-    max_length = 4096  # Максимальная длина сообщения для отправки в Telegram
-
-    while text:
-        chunk, text = text[:max_length], text[max_length:]
-        await bot.send_message(chat_id, chunk)
+    try:
+        max_length = 4096  # Максимальная длина сообщения для отправки в Telegram
+        print('ауууууууууу')
+        while text:
+            chunk, text = text[:max_length], text[max_length:]
+            print(f"Chunk length: {len(chunk)}")
+            await bot.send_message(chat_id, chunk)
+    except Exception as e:
+        print(f"Error sending long message: {e}")
 
 
 async def check_calendar():
@@ -55,13 +74,14 @@ async def check_calendar():
         if calendar_response.status_code == 200:
             calendar_data = calendar_response.json()
 
-            # Ищем слоты с параметром availability равным False
-            unavailable_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
-                                 not slot.get('availability')]
+            # Ищем слоты с параметром availability равным True
+            available_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
+                               slot.get('availability')]
+            print(available_slots)
 
-            if unavailable_slots:
+            if available_slots:
                 # выводим информацию о слотах
-                messages = await process_unavailable_slots(unavailable_slots)
+                messages = await process_available_slots(available_slots)
                 last_check_time_message = f'Последняя проверка была: {current_datetime - last_check_time}' if last_check_time is not None else ''
 
                 # Собираем все сообщения в одну строку
@@ -70,15 +90,15 @@ async def check_calendar():
                 # Проверяем, если сообщение слишком длинное
                 if combined_message:
                     if len(combined_message) > 4096:
-                        await send_long_message(-4008242375, combined_message)
+                        await send_long_message(-1002131738291, combined_message)
                     else:
-                        await bot.send_message(-4008242375, f'{combined_message}{last_check_time_message}')
+                        await bot.send_message(-1002131738291, f'{combined_message}{last_check_time_message}')
 
                 last_has_slots = True
                 last_check_time = current_datetime  # Обновляем время последней проверки
 
             elif last_has_slots:
-                await bot.send_message(-4008242375, 'Нет доступных слотов')
+                await bot.send_message(-1002131738291, 'Нет доступных слотов')
                 last_has_slots = False
 
         elif calendar_response.status_code == 401:
@@ -88,13 +108,12 @@ async def check_calendar():
             calendar_response = get_calendar(headers)
             calendar_data = calendar_response.json()
 
-            # Ищем слоты с параметром availability равным False
-            unavailable_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
-                                 not slot.get('availability')]
+            # Ищем слоты с параметром availability равным True
+            available_slots = [slot for slot in calendar_data.get('data', {}).get('slots', []) if
+                               slot.get('availability')]
 
-            if unavailable_slots:
-                # Если есть недоступные слоты, выводим информацию о слотах
-                messages = await process_unavailable_slots(unavailable_slots)
+            if available_slots:
+                messages = await process_available_slots(available_slots)
                 last_check_time_message = f'Последняя проверка была: {current_datetime - last_check_time}' if last_check_time is not None else ''
 
                 # Собираем все сообщения в одну строку
@@ -102,16 +121,16 @@ async def check_calendar():
 
                 # Проверяем, если сообщение слишком длинное
                 if combined_message:
-                    if len(combined_message) > 4096:
-                        await send_long_message(-4008242375, combined_message)
+                    if len(combined_message) > 30:
+                        await send_long_message(-1002131738291, combined_message)
                     else:
-                        await bot.send_message(-4008242375, f'{combined_message}{last_check_time_message}')
+                        await bot.send_message(-1002131738291, f'{combined_message}{last_check_time_message}')
 
                 last_has_slots = True
                 last_check_time = current_datetime  # Обновляем время последней проверки
 
             elif last_has_slots:
-                await bot.send_message(-4008242375, 'Нет доступных слотов')
+                await bot.send_message(-1002131738291, 'Нет доступных слотов')
                 last_has_slots = False
 
     except requests.exceptions.RequestException as e:

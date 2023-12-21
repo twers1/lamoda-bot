@@ -1,0 +1,4 @@
+requests==2.31.0
+aiogram==2.5.1
+wheel==0.42.0
+python-dotenv==1.0.0
