@@ -20,8 +20,8 @@ async def process_available_slots(slots):
         # Convert freeCapacityCount to an integer (default to 0 if not convertible)
         free_capacity_count = int(free_capacity_count_str) if free_capacity_count_str.isdigit() else 0
 
-        if availability and (free_capacity_count > 340 or (free_capacity_count_str.isdigit() and int(
-                free_capacity_count_str) > 200) or "более" in free_capacity_count_str.lower()):
+        if availability and (free_capacity_count > 400 or (free_capacity_count_str.isdigit() and int(
+                free_capacity_count_str) > 2000) or "более" in free_capacity_count_str.lower()):
             start_time = datetime.fromisoformat(slot.get("startAt"))
             end_time = datetime.fromisoformat(slot.get("endAt"))
 
@@ -47,9 +47,11 @@ async def send_long_message(chat_id, text):
         while text:
             chunk, text = text[:max_length], text[max_length:]
             print(f"Chunk length: {len(chunk)}")
-            await bot.send_message(chat_id, chunk)
+            if len(chunk) > 0:
+                await bot.send_message(chat_id, chunk)
     except Exception as e:
         print(f"Error sending long message: {e}")
+
 
 
 async def check_calendar():
